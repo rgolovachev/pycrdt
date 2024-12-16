@@ -76,7 +76,7 @@ def hb_thread():
             pass
 
 def send_log_routine(addr, data):
-    requests.put(addr, data=data, headers={'Content-Type':'application/json'})
+    requests.put(addr, data=data, headers={'Content-Type':'application/json'}, timeout=5)
 
 #
 # CRDT
@@ -90,12 +90,12 @@ def is_newer(oper: Operation):
     cur_is_newer = False
     oper_is_newer = False
     for node_id, t in oper.ts.items():
-        if node_id not in state['data_ts'] or state['data_ts'][node_id] < t:
+        if node_id not in state['data_ts'][oper.key] or state['data_ts'][oper.key][node_id] < t:
             oper_is_newer = True
-        elif state['data_ts'][node_id] > t:
+        elif state['data_ts'][oper.key][node_id] > t:
             cur_is_newer = True
 
-    cur_nodes = set(state['data_ts'].keys())
+    cur_nodes = set(state['data_ts'][oper.key].keys())
     oper_nodes = set(oper.ts.keys())
 
     if len(cur_nodes - oper_nodes) > 0:
@@ -159,11 +159,8 @@ def change_values():
             else:
                 op_type = 'del'
 
-            oper = None
             with state_lock:
                 oper = Operation(key=k, value=v, op_type=op_type, src=cur_id, ts=copy.deepcopy(state['cur_ts']))
-
-            with state_lock:
                 apply(oper)
 
             return jsonify({'status': 'success'}), 200
