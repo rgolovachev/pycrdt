@@ -21,7 +21,7 @@ class Operation:
 OperationSchema = class_schema(Operation)
 
 
-HEARTBEAT_DURATION = 2
+HEARTBEAT_DURATION = 40
 
 
 is_terminating = False
@@ -76,7 +76,7 @@ def hb_thread():
             pass
 
 def send_log_routine(addr, data):
-    requests.put(addr, data=data, headers={'Content-Type':'application/json'}, timeout=5)
+    requests.put(addr, data=data, headers={'Content-Type':'application/json', 'Node': str(cur_id)}, timeout=5)
 
 #
 # CRDT
@@ -85,8 +85,15 @@ def send_log_routine(addr, data):
 # need to call under lock
 def is_newer(oper: Operation):
     if oper.key not in state['data_ts']:
+        # print(oper.key + ' not in state["data_ts"]')
         return True
 
+    # try:
+    #     print('cur key ts: ' + str(state['data_ts'][oper.key]) + "; " + oper.key + ":" + state['data'][oper.key])
+    #     print('oper key ts: ' + str(oper.ts) + "; " + oper.key + ":" + oper.value)
+    # except Exception as e:
+    #     print(e)
+    #     return
     cur_is_newer = False
     oper_is_newer = False
     for node_id, t in oper.ts.items():
@@ -110,12 +117,14 @@ def is_newer(oper: Operation):
             return False
         return True
 
-    return oper.src % 2 == 0
+    return oper.value > state['data'][oper.key]
 
 
 # need to call under lock
 def apply(oper: Operation):
-    if is_newer(oper):
+    verdict = is_newer(oper)
+    # print('verdict: ' + str(verdict))
+    if verdict:
         if oper.op_type == 'set':
             state['data'][oper.key] = oper.value
         elif oper.op_type == 'del' and oper.key in state['data']:
@@ -124,15 +133,15 @@ def apply(oper: Operation):
         if oper.key not in state['data_ts']:
             state['data_ts'][oper.key] = dict()
 
-        for node_id, t in oper.ts:
+        for node_id, t in oper.ts.items():
             state['data_ts'][oper.key][node_id] = t
 
         state['log'].append(oper)
 
 
 # need to call under lock
-def match_clocks(other_node_ts):
-    for node_id, t in other_node_ts.items():
+def match_clocks(oper_ts):
+    for node_id, t in oper_ts.items():
         if node_id not in state['cur_ts'] or state['cur_ts'][node_id] < t:
             state['cur_ts'][node_id] = t
 
@@ -164,8 +173,15 @@ def change_values():
                 apply(oper)
 
             return jsonify({'status': 'success'}), 200
-    except:
+    except Exception as e:
+        print(e)
         return jsonify({'error': 'caught exception'}), 500
+
+
+@app.route('/values', methods=['GET'])
+def get_values():
+    with state_lock:
+        return jsonify(state['data']), 200
 
 
 @app.route('/sync', methods=['PUT'])
@@ -176,11 +192,16 @@ def sync_clocks():
         oper_schema = OperationSchema(many=True)
         opers = oper_schema.load(json_data)
 
+        # print('sender node is ' + request.headers['Node'])
         for oper in opers:
+            oper.ts = {int(k): v for k, v in oper.ts.items()}
+            # print('oper:', oper)
+            # print('cur_ts: ', state['cur_ts'])
             with state_lock:
                 apply(oper)
                 match_clocks(oper.ts)
 
+        return jsonify({'status': 'success'}), 200
     except:
         return jsonify({'error': 'caught exception'}), 500
 
@@ -195,6 +216,7 @@ def main(id):
     cur_id = id
     (host, port) = nodes[cur_id]
 
+    state['cur_ts'] = dict()
     state['cur_ts'][cur_id] = 0
 
     hb_thr = threading.Thread(target=hb_thread)
