@@ -21,9 +21,7 @@ class Operation:
 OperationSchema = class_schema(Operation)
 
 
-HEARTBEAT_DURATION = 40
-
-
+hb_duration = 40
 is_terminating = False
 cur_id = -1
 nodes = dict()
@@ -43,7 +41,7 @@ state = {
 
 def reset_hb_timer():
     with state_lock:
-        state['hb_timer'] = threading.Timer(HEARTBEAT_DURATION, hb_event.set)
+        state['hb_timer'] = threading.Timer(hb_duration, hb_event.set)
         state['hb_timer'].start()
 
 def inc_ts():
@@ -67,7 +65,7 @@ def hb_thread():
                 for node_id in nodes.keys():
                     if node_id != cur_id:
                         # send log
-                        (host, port) = nodes[node_id]
+                        (host, port, _) = nodes[node_id]
                         addr = f"http://{host}:{port}/sync"
                         threading.Thread(target=send_log_routine, args=(addr,data,), daemon=True).start()
 
@@ -159,6 +157,7 @@ def change_values():
         if not isinstance(updates, dict):
             return jsonify({'error': 'invalid body format'}), 400
 
+        # print("UPDATES: " + str(updates))
         for k, v in updates.items():
             inc_ts()
 
@@ -172,7 +171,7 @@ def change_values():
                 oper = Operation(key=k, value=v, op_type=op_type, src=cur_id, ts=copy.deepcopy(state['cur_ts']))
                 apply(oper)
 
-            return jsonify({'status': 'success'}), 200
+        return jsonify({'status': 'success'}), 200
     except Exception as e:
         print(e)
         return jsonify({'error': 'caught exception'}), 500
@@ -182,6 +181,15 @@ def change_values():
 def get_values():
     with state_lock:
         return jsonify(state['data']), 200
+
+@app.route('/state_dump', methods=['GET'])
+def get_state_dump():
+    with state_lock:
+        result = dict()
+        result['data'] = state['data']
+        result['data_ts'] = state['data_ts']
+        result['cur_ts'] = state['cur_ts']
+        return jsonify(result), 200
 
 
 @app.route('/sync', methods=['PUT'])
@@ -214,7 +222,10 @@ def main(id):
     print(nodes)
 
     cur_id = id
-    (host, port) = nodes[cur_id]
+    (host, port, hb_t) = nodes[cur_id]
+
+    global hb_duration
+    hb_duration = hb_t
 
     state['cur_ts'] = dict()
     state['cur_ts'][cur_id] = 0
@@ -233,6 +244,6 @@ if __name__ == '__main__':
     [id, cfg_path] = sys.argv[1:]
     with open(cfg_path, 'r') as f:
         line_parts = map(lambda line: line.split(), f.read().strip().split("\n"))
-        nodes = dict([(int(p[0]), (p[1], int(p[2]))) for p in line_parts])
+        nodes = dict([(int(p[0]), (p[1], int(p[2]), float(p[3]))) for p in line_parts])
         print(list(nodes))
     main(int(id))
