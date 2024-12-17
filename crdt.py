@@ -28,6 +28,7 @@ nodes = dict()
 hb_event = threading.Event()
 state_lock = threading.Lock()
 state = {
+    'blacklist': [],
     'log': [],
     'data': dict(),
     'data_ts': dict(),
@@ -46,7 +47,10 @@ def reset_hb_timer():
 
 def inc_ts():
     with state_lock:
-        state['cur_ts'][cur_id] += 1
+        if cur_id not in state['cur_ts']:
+            state['cur_ts'][cur_id] = 1
+        else:
+            state['cur_ts'][cur_id] += 1
 
 #
 # heartbeats sender
@@ -63,7 +67,7 @@ def hb_thread():
                     data = json.dumps([asdict(oper) for oper in state['log']], ensure_ascii=False, indent=4)
 
                 for node_id in nodes.keys():
-                    if node_id != cur_id:
+                    if node_id != cur_id and str(node_id) not in state['blacklist']:
                         # send log
                         (host, port, _) = nodes[node_id]
                         addr = f"http://{host}:{port}/sync"
@@ -86,12 +90,6 @@ def is_newer(oper: Operation):
         # print(oper.key + ' not in state["data_ts"]')
         return True
 
-    # try:
-    #     print('cur key ts: ' + str(state['data_ts'][oper.key]) + "; " + oper.key + ":" + state['data'][oper.key])
-    #     print('oper key ts: ' + str(oper.ts) + "; " + oper.key + ":" + oper.value)
-    # except Exception as e:
-    #     print(e)
-    #     return
     cur_is_newer = False
     oper_is_newer = False
     for node_id, t in oper.ts.items():
@@ -152,6 +150,10 @@ app = Flask(__name__)
 @app.route('/change', methods=['PATCH'])
 def change_values():
     try:
+        with state_lock:
+            if 'Node' in request.headers and request.headers['Node'] in state['blacklist']:
+                return
+
         updates = request.get_json()
 
         if not isinstance(updates, dict):
@@ -177,24 +179,13 @@ def change_values():
         return jsonify({'error': 'caught exception'}), 500
 
 
-@app.route('/values', methods=['GET'])
-def get_values():
-    with state_lock:
-        return jsonify(state['data']), 200
-
-@app.route('/state_dump', methods=['GET'])
-def get_state_dump():
-    with state_lock:
-        result = dict()
-        result['data'] = state['data']
-        result['data_ts'] = state['data_ts']
-        result['cur_ts'] = state['cur_ts']
-        return jsonify(result), 200
-
-
 @app.route('/sync', methods=['PUT'])
 def sync_clocks():
     try:
+        with state_lock:
+            if 'Node' in request.headers and request.headers['Node'] in state['blacklist']:
+                return
+
         json_data = request.get_json()
 
         oper_schema = OperationSchema(many=True)
@@ -210,8 +201,31 @@ def sync_clocks():
                 match_clocks(oper.ts)
 
         return jsonify({'status': 'success'}), 200
-    except:
+    except Exception as e:
+        print(e)
         return jsonify({'error': 'caught exception'}), 500
+
+
+@app.route('/blacklist', methods=['PUT'])
+def set_blacklist():
+    with state_lock:
+        state['blacklist'] = request.headers['Nodes'].split(',')
+        return jsonify({'status': 'blacklist was set successfuly'}), 200
+
+
+@app.route('/values', methods=['GET'])
+def get_values():
+    with state_lock:
+        return jsonify(state['data']), 200
+
+@app.route('/state_dump', methods=['GET'])
+def get_state_dump():
+    with state_lock:
+        result = dict()
+        result['data'] = state['data']
+        result['data_ts'] = state['data_ts']
+        result['cur_ts'] = state['cur_ts']
+        return jsonify(result), 200
 
 
 def main(id):
@@ -228,7 +242,6 @@ def main(id):
     hb_duration = hb_t
 
     state['cur_ts'] = dict()
-    state['cur_ts'][cur_id] = 0
 
     hb_thr = threading.Thread(target=hb_thread)
     hb_thr.start()
