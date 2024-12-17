@@ -157,7 +157,7 @@ def change_values():
         if not isinstance(updates, dict):
             return jsonify({'error': 'invalid body format'}), 400
 
-        # print("UPDATES: " + str(updates))
+        print("UPDATES: " + str(updates), file=sys.stderr)
         for k, v in updates.items():
             inc_ts()
 

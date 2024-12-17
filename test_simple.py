@@ -31,6 +31,7 @@ def main():
         resp = requests.get(addr)
         resp_json = resp.json()
 
+        # print(id, resp_json['data'], resp_json['cur_ts'])
         if resp_json['data'] != cur_kv:
             print("KV state mismatch")
             print('current: ' + str(resp_json['data']))
@@ -49,6 +50,9 @@ def main():
         print(requests.get(addr).json())
 
     try:
+        #
+        # basic functional
+        #
         random_id = random.randint(0, len(nodes) - 1)
         (host, port, _) = nodes_cfg[random_id]
         addr = f"http://{host}:{port}/change"
@@ -56,7 +60,7 @@ def main():
         cur_ts = {str(random_id): 1}
 
         requests.patch(addr, json=cur_kv, headers={'Content-Type':'application/json'})
-        time.sleep(0.3)
+        time.sleep(1)
 
         for node_id in range(3):
             check_node_state(node_id, cur_kv, cur_ts)
@@ -71,7 +75,7 @@ def main():
             cur_ts[str(random_id)] = len(cur_kv)
 
         requests.patch(addr, json=cur_kv, headers={'Content-Type':'application/json'})
-        time.sleep(0.5)
+        time.sleep(1)
 
         for node_id in range(3):
             check_node_state(node_id, cur_kv, cur_ts)
@@ -87,9 +91,32 @@ def main():
             cur_ts[str(random_id)] = len(cur_kv)
 
         requests.patch(addr, json=cur_kv, headers={'Content-Type':'application/json'})
-        time.sleep(0.5)
+        time.sleep(1)
 
         del cur_kv['k2']
+        for node_id in range(3):
+            check_node_state(node_id, cur_kv, cur_ts)
+
+        #
+        # conflicts resolving
+        #
+        (host0, port0, _) = nodes_cfg[0]
+        addr0 = f"http://{host0}:{port0}/change"
+        (host1, port1, _) = nodes_cfg[1]
+        addr1 = f"http://{host1}:{port1}/change"
+        cur_ts['0'] += 1
+        cur_ts['1'] += 1
+
+        cur_kv2 = dict()
+        cur_kv2['k3'] = 'v3'
+        requests.patch(addr0, json=cur_kv2, headers={'Content-Type':'application/json'})
+
+        cur_kv2['k3'] = 'v4'
+        requests.patch(addr1, json=cur_kv2, headers={'Content-Type':'application/json'})
+
+        time.sleep(1.5)
+
+        cur_kv['k3'] = 'v4'
         for node_id in range(3):
             check_node_state(node_id, cur_kv, cur_ts)
 
