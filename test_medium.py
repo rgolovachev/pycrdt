@@ -30,7 +30,6 @@ def main():
         resp = requests.get(addr)
         resp_json = resp.json()
 
-        # print(id, resp_json['data'], resp_json['cur_ts'])
         if resp_json['data'] != cur_kv:
             print("KV state mismatch")
             print('current: ' + str(resp_json['data']))

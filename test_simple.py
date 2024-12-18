@@ -31,7 +31,6 @@ def main():
         resp = requests.get(addr)
         resp_json = resp.json()
 
-        # print(id, resp_json['data'], resp_json['cur_ts'])
         if resp_json['data'] != cur_kv:
             print("KV state mismatch")
             print('current: ' + str(resp_json['data']))
@@ -104,8 +103,8 @@ def main():
         addr0 = f"http://{host0}:{port0}/change"
         (host1, port1, _) = nodes_cfg[1]
         addr1 = f"http://{host1}:{port1}/change"
-        cur_ts['0'] += 1
-        cur_ts['1'] += 1
+        cur_ts['0'] = cur_ts.get('0', 0) + 1
+        cur_ts['1'] = cur_ts.get('1', 0) + 1
 
         cur_kv2 = dict()
         cur_kv2['k3'] = 'v3'

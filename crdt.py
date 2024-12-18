@@ -87,7 +87,6 @@ def send_log_routine(addr, data):
 # need to call under lock
 def is_newer(oper: Operation):
     if oper.key not in state['data_ts']:
-        # print(oper.key + ' not in state["data_ts"]')
         return True
 
     cur_is_newer = False
@@ -118,9 +117,8 @@ def is_newer(oper: Operation):
 
 # need to call under lock
 def apply(oper: Operation):
-    verdict = is_newer(oper)
-    # print('verdict: ' + str(verdict))
-    if verdict:
+    verdict_is_newer = is_newer(oper)
+    if verdict_is_newer:
         if oper.op_type == 'set':
             state['data'][oper.key] = oper.value
         elif oper.op_type == 'del' and oper.key in state['data']:
@@ -159,7 +157,6 @@ def change_values():
         if not isinstance(updates, dict):
             return jsonify({'error': 'invalid body format'}), 400
 
-        print("UPDATES: " + str(updates), file=sys.stderr)
         for k, v in updates.items():
             inc_ts()
 
@@ -191,11 +188,8 @@ def sync_clocks():
         oper_schema = OperationSchema(many=True)
         opers = oper_schema.load(json_data)
 
-        # print('sender node is ' + request.headers['Node'])
         for oper in opers:
             oper.ts = {int(k): v for k, v in oper.ts.items()}
-            # print('oper:', oper)
-            # print('cur_ts: ', state['cur_ts'])
             with state_lock:
                 apply(oper)
                 match_clocks(oper.ts)
