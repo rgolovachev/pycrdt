@@ -39,7 +39,6 @@ state = {
 #
 # misc
 #
-
 def reset_hb_timer():
     with state_lock:
         state['hb_timer'] = threading.Timer(hb_duration, hb_event.set)
